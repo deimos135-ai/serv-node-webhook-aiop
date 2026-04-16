@@ -26,13 +26,13 @@ app.post("/openai/realtime-webhook", async (req, res) => {
 
     const callId = event?.data?.call_id;
     if (!callId) {
-      return res.status(400).json({ ok: false, error: "Missing call_id" });
+      console.log("No call_id in webhook payload, ignoring");
+      return res.status(200).json({ ok: true, ignored: "missing_call_id" });
     }
 
     const payload = {
       type: "realtime",
       model: "gpt-realtime",
-      voice: "alloy",
       instructions: [
         "Ти голосовий оператор компанії.",
         "Говори українською, коротко і природно.",
@@ -40,8 +40,28 @@ app.post("/openai/realtime-webhook", async (req, res) => {
         "Якщо клієнт питає про стан рахунку — скажи, що зараз перевіриш інформацію.",
         "Якщо не можеш допомогти — скажи, що з'єднаєш з менеджером.",
         "Не вигадуй інформацію."
-      ].join(" ")
+      ].join(" "),
+      output_modalities: ["audio"],
+      audio: {
+        input: {
+          format: {
+            type: "audio/pcma"
+          },
+          turn_detection: {
+            type: "server_vad",
+            create_response: true
+          }
+        },
+        output: {
+          format: {
+            type: "audio/pcma"
+          },
+          voice: "alloy"
+        }
+      }
     };
+
+    console.log("Accept payload:", JSON.stringify(payload, null, 2));
 
     const response = await fetch(
       `https://api.openai.com/v1/realtime/calls/${callId}/accept`,
