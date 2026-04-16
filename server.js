@@ -45,7 +45,7 @@ app.post("/openai/realtime-webhook", async (req, res) => {
       audio: {
         input: {
           format: {
-            type: "audio/pcma"
+            type: "audio/pcmu"
           },
           turn_detection: {
             type: "server_vad",
@@ -54,7 +54,7 @@ app.post("/openai/realtime-webhook", async (req, res) => {
         },
         output: {
           format: {
-            type: "audio/pcma"
+            type: "audio/pcmu"
           },
           voice: "alloy"
         }
