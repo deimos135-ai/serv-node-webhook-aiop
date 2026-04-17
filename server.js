@@ -5,10 +5,81 @@ app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const INTEGRATION_API_URL = process.env.INTEGRATION_API_URL;
+const INTEGRATION_API_TOKEN = process.env.INTEGRATION_API_TOKEN;
 
 if (!OPENAI_API_KEY) {
   console.error("Missing OPENAI_API_KEY");
   process.exit(1);
+}
+
+function getSipHeader(headers, name) {
+  const found = (headers || []).find(
+    (h) => String(h.name || "").toLowerCase() === name.toLowerCase()
+  );
+  return found?.value || "";
+}
+
+function extractPhoneFromSip(fromHeader) {
+  if (!fromHeader) return "";
+
+  // Напр. <sip:380991112233@domain.com>
+  const match = fromHeader.match(/sip:([^@>]+)@/i);
+  if (!match) return "";
+
+  return match[1].replace(/[^\d+]/g, "");
+}
+
+async function findCustomerByPhone(phone) {
+  if (!INTEGRATION_API_URL || !phone) return null;
+
+  try {
+    const url = new URL("/customer/by-phone", INTEGRATION_API_URL);
+    url.searchParams.set("phone", phone);
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        "x-api-token": INTEGRATION_API_TOKEN || ""
+      }
+    });
+
+    if (!response.ok) {
+      console.error("Integration app failed:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data?.ok || !data?.found) return null;
+
+    return data.customer || null;
+  } catch (error) {
+    console.error("findCustomerByPhone error:", error);
+    return null;
+  }
+}
+
+function buildCustomerContext(customer) {
+  if (!customer) {
+    return `
+Абонента за номером телефону не знайдено.
+Не вигадуй дані.
+Якщо потрібна перевірка в системі, скажи: "Уточню це. З вами зв’яжемося."
+    `.trim();
+  }
+
+  return `
+Контекст абонента:
+- Абонент знайдений по номеру телефону
+- ПІБ: ${customer.full_name || "невідомо"}
+- Телефон: ${customer.phone || "невідомо"}
+- Населений пункт: ${customer.city || "невідомо"}
+- Тариф: ${customer.tariff || "невідомо"}
+- IP адреса: ${customer.ip || "невідомо"}
+
+Не озвучуй усі дані одразу.
+Використовуй їх лише коли доречно.
+Не вигадуй інформацію, якої тут немає.
+  `.trim();
 }
 
 const SYSTEM_PROMPT = `
@@ -42,25 +113,6 @@ const SYSTEM_PROMPT = `
 - Не використовуй надто довгі речення.
 - Не говори фрази на кшталт: "одну хвилинку, виконується обробка запиту".
 - Замість цього кажи коротко: "Зараз перевірю." або "Уточню це."
-
-Межі:
-- Не вигадуй інформацію, якої немає в системі.
-- Не придумуй результати перевірок.
-- Не змінюй тариф, не створюй заявку і не підтверджуй дію, якщо система цього не повернула.
-- Якщо клієнт просить дію поза твоїми можливостями, поясни це коротко і передай на оператора.
-
-Приклади:
-Клієнт: В мене не працює інтернет.
-Оператор: Розумію. На роутері світяться індикатори?
-
-Клієнт: Так.
-Оператор: Добре. Спробуйте, будь ласка, перезавантажити роутер.
-
-Клієнт: Як змінити тариф?
-Оператор: Підкажу. Назвіть, будь ласка, номер договору або адресу.
-
-Клієнт: Який у мене баланс?
-Оператор: Зараз перевірю. Назвіть, будь ласка, номер договору.
 `.trim();
 
 app.get("/health", (_req, res) => {
@@ -78,14 +130,22 @@ app.post("/openai/realtime-webhook", async (req, res) => {
 
     const callId = event?.data?.call_id;
     if (!callId) {
-      console.log("No call_id in webhook payload, ignoring");
       return res.status(200).json({ ok: true, ignored: "missing_call_id" });
     }
+
+    const sipHeaders = event?.data?.sip_headers || [];
+    const fromHeader = getSipHeader(sipHeaders, "From");
+    const callerPhone = extractPhoneFromSip(fromHeader);
+
+    console.log("Caller phone:", callerPhone);
+
+    const customer = await findCustomerByPhone(callerPhone);
+    const customerContext = buildCustomerContext(customer);
 
     const payload = {
       type: "realtime",
       model: "gpt-realtime",
-      instructions: SYSTEM_PROMPT,
+      instructions: `${SYSTEM_PROMPT}\n\n${customerContext}`,
       output_modalities: ["audio"],
       audio: {
         input: {
@@ -140,5 +200,5 @@ app.post("/openai/realtime-webhook", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`voice-app listening on :${PORT}`);
 });
