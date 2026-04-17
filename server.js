@@ -75,13 +75,22 @@ function buildCustomerContext(customer) {
 - Абонент знайдений по номеру телефону
 - ПІБ: ${customer.full_name || "невідомо"}
 - Телефон: ${customer.phone || "невідомо"}
-- Населений пункт: ${customer.city || "невідомо"}
+- Адреса: ${customer.address || "невідомо"}
 - Тариф: ${customer.tariff || "невідомо"}
+- Абонплата: ${customer.monthly_fee || "невідомо"}
+- Баланс рахунку: ${customer.balance || "невідомо"}
+- Платіжний ID: ${customer.payment_id || "невідомо"}
 - IP адреса: ${customer.ip || "невідомо"}
+- Дата останньої активності: ${customer.last_activity_date || "невідомо"}
 
-Не озвучуй усі дані одразу.
-Використовуй їх лише коли доречно.
-Не вигадуй інформацію, якої тут немає.
+Правила використання контексту:
+- Не озвучуй усі ці дані одразу.
+- Використовуй їх лише коли це доречно.
+- Якщо клієнт питає про баланс — можеш сказати баланс рахунку.
+- Якщо клієнт питає про тариф — можеш назвати тариф і абонплату.
+- Не називай IP адресу без прямої потреби.
+- Не називай платіжний ID без прямого запиту.
+- Якщо інформації бракує — не вигадуй.
   `.trim();
 }
 
@@ -159,10 +168,9 @@ app.post("/openai/realtime-webhook", async (req, res) => {
     console.log("Caller phone:", callerPhone);
 
     let customerContext = "";
-    let customer = null;
 
     if (callerPhone && !isInternalExtension(callerPhone)) {
-      customer = await findCustomerByPhone(callerPhone);
+      const customer = await findCustomerByPhone(callerPhone);
       customerContext = buildCustomerContext(customer);
     } else {
       customerContext = buildInternalTestContext(callerPhone);
