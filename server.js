@@ -23,11 +23,14 @@ function getSipHeader(headers, name) {
 function extractPhoneFromSip(fromHeader) {
   if (!fromHeader) return "";
 
-  // Напр. <sip:380991112233@domain.com>
   const match = fromHeader.match(/sip:([^@>]+)@/i);
   if (!match) return "";
 
   return match[1].replace(/[^\d+]/g, "");
+}
+
+function isInternalExtension(phone) {
+  return /^\d{1,5}$/.test(phone);
 }
 
 async function findCustomerByPhone(phone) {
@@ -79,6 +82,21 @@ function buildCustomerContext(customer) {
 Не озвучуй усі дані одразу.
 Використовуй їх лише коли доречно.
 Не вигадуй інформацію, якої тут немає.
+  `.trim();
+}
+
+function buildInternalTestContext(extension) {
+  return `
+Це внутрішній тестовий виклик.
+Внутрішній номер: ${extension || "невідомо"}.
+Не намагайся ідентифікувати абонента по номеру телефону.
+Працюй як демонстраційний оператор підтримки інтернет-провайдера.
+Можеш консультувати з типових питань:
+- не працює інтернет
+- зміна тарифу
+- перевірка статусу послуги
+- консультація по підключенню
+Якщо потрібні реальні дані абонента, поясни, що це можливо лише для зовнішнього дзвінка або після перевірки в системі.
   `.trim();
 }
 
@@ -134,13 +152,21 @@ app.post("/openai/realtime-webhook", async (req, res) => {
     }
 
     const sipHeaders = event?.data?.sip_headers || [];
+    const customCaller = getSipHeader(sipHeaders, "X-Caller-Phone");
     const fromHeader = getSipHeader(sipHeaders, "From");
-    const callerPhone = extractPhoneFromSip(fromHeader);
 
+    let callerPhone = customCaller || extractPhoneFromSip(fromHeader);
     console.log("Caller phone:", callerPhone);
 
-    const customer = await findCustomerByPhone(callerPhone);
-    const customerContext = buildCustomerContext(customer);
+    let customerContext = "";
+    let customer = null;
+
+    if (callerPhone && !isInternalExtension(callerPhone)) {
+      customer = await findCustomerByPhone(callerPhone);
+      customerContext = buildCustomerContext(customer);
+    } else {
+      customerContext = buildInternalTestContext(callerPhone);
+    }
 
     const payload = {
       type: "realtime",
